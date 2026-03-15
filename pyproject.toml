@@ -1,0 +1,12 @@
+[project]
+name = "django-link-shortener"
+version = "0.1.0"
+description = "Admin-only Django link shortener"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "Django==6.0",
+    "gunicorn==22.0.0",
+    "qrcode[pil]>=8.2",
+    "whitenoise==6.12.0",
+]
