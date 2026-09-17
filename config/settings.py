@@ -1,22 +1,61 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
-(BASE_DIR / 'data').mkdir(exist_ok=True)
 
 
 def env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+    value = value.strip().lower()
+    if value in {'1', 'true', 'yes', 'on'}:
+        return True
+    if value in {'0', 'false', 'no', 'off'}:
+        return False
+    raise ImproperlyConfigured(f'{name} must be True or False.')
 
 
-SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-change-me')
+def env_list(name: str) -> list[str]:
+    return [value.strip() for value in os.getenv(name, '').split(',') if value.strip()]
+
+
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', '')
+if len(SECRET_KEY) < 50 or len(set(SECRET_KEY)) < 5 or SECRET_KEY.startswith('django-insecure-'):
+    raise ImproperlyConfigured(
+        'Set DJANGO_SECRET_KEY to a random secret of at least 50 characters '
+        'with at least 5 distinct characters. Do not use an example key.'
+    )
+
 DEBUG = env_bool('DJANGO_DEBUG', False)
-ALLOWED_HOSTS = [host.strip() for host in os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',') if host.strip()]
-CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if origin.strip()]
+ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS')
+if not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS:
+    raise ImproperlyConfigured(
+        'Set DJANGO_ALLOWED_HOSTS to a comma-separated list of trusted hosts; "*" is not allowed.'
+    )
+CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 SHORTLINK_BASE_URL = os.getenv('SHORTLINK_BASE_URL', '').rstrip('/')
+
+SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', True)
+SESSION_COOKIE_SECURE = env_bool('DJANGO_SESSION_COOKIE_SECURE', True)
+CSRF_COOKIE_SECURE = env_bool('DJANGO_CSRF_COOKIE_SECURE', True)
+try:
+    SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_SECURE_HSTS_SECONDS', '0'))
+except ValueError as exc:
+    raise ImproperlyConfigured('DJANGO_SECURE_HSTS_SECONDS must be a non-negative integer.') from exc
+if SECURE_HSTS_SECONDS < 0:
+    raise ImproperlyConfigured('DJANGO_SECURE_HSTS_SECONDS must be a non-negative integer.')
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', False)
+SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', False)
+
+# Gunicorn validates the proxy's source IP before setting wsgi.url_scheme.
+# Do not trust X-Forwarded-Proto directly in Django, which would bypass that check.
+SECURE_PROXY_SSL_HEADER = None
+USE_X_FORWARDED_HOST = False
+
+(BASE_DIR / 'data').mkdir(exist_ok=True)
 
 INSTALLED_APPS = [
     'django.contrib.admin',
