@@ -3,6 +3,13 @@ FROM python:3.13-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+# Apply distribution security updates between upstream Python image rebuilds.
+# uv installs the application; pip and its bundled libraries are not needed.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip uninstall --yes pip
+
 WORKDIR /app
 
 FROM base AS builder
