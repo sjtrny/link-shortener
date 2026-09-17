@@ -38,8 +38,9 @@ the HTTP overrides for an internet-facing installation.
 Start the app and create the first admin interactively:
 
 ```bash
-docker compose up --build -d
-docker compose exec web uv run python manage.py createsuperuser
+docker compose -f docker-compose.yml -f compose.build.yml build
+docker compose up -d --wait
+docker compose exec web python manage.py createsuperuser
 ```
 
 There is no default admin account or password. Open:
@@ -47,20 +48,35 @@ There is no default admin account or password. Open:
 - App: http://localhost:8000/
 - Admin: http://localhost:8000/admin/
 
-Compose stores the database in `./data`. `.env` and runtime data are ignored by
-Git and excluded from the image build. Do not commit or share real credentials.
+Compose stores the database in the named volume `link-shortener-data`. Container
+replacement preserves this volume. Do not use `docker compose down --volumes`
+unless you intend to delete the database. `.env` and runtime data are ignored
+by Git and excluded from the image build. Do not commit or share real credentials.
+
+**Upgrading an existing installation that uses `./data`?** Follow the
+[data migration instructions](docs/operations.md#existing-bind-mount-installations)
+before using the new Compose file. It does not copy your old database automatically.
+
+The main Compose file runs an image without a source checkout or build tools.
+The additional `compose.build.yml` file builds that image locally. See
+[container operations](docs/operations.md) for published-image configuration,
+backups, restores, upgrades, and data ownership. A GHCR release is not published
+yet; use the local build until one is available.
 
 ### Docker without Compose
 
 Use the same configured `.env` file:
 
 ```bash
-docker build -t django-link-shortener .
+docker build -t link-shortener:local .
 docker run -d --name link-shortener -p 127.0.0.1:8000:8000 \
+  --restart unless-stopped --stop-timeout 35 \
+  --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+  --cap-drop ALL --security-opt no-new-privileges:true \
   --env-file .env \
   -v link-shortener-data:/app/data \
-  django-link-shortener
-docker exec -it link-shortener uv run python manage.py createsuperuser
+  link-shortener:local
+docker exec -it link-shortener python manage.py createsuperuser
 ```
 
 ### Optional automated admin bootstrap
@@ -171,7 +187,7 @@ HSTS is opt-in because browsers retain it. After HTTPS works, start with
 Review deployment checks with the production environment:
 
 ```bash
-docker compose exec web uv run python manage.py check --deploy
+docker compose exec web python manage.py check --deploy
 ```
 
 With HSTS disabled, Django reports `security.W004`. If HSTS is enabled but its
@@ -184,6 +200,8 @@ and [Gunicorn's proxy settings](https://gunicorn.org/reference/settings/).
 
 | Variable | Default / purpose |
 | --- | --- |
+| `LINK_SHORTENER_IMAGE` | Compose image reference; defaults to `ghcr.io/sjtrny/link-shortener:latest`. The local example uses `link-shortener:local`. Use a published version or digest for production. |
+| `LINK_SHORTENER_DATA_VOLUME` | Compose volume name; defaults to `link-shortener-data`. Keep it stable across upgrades. Use distinct names for separate installations. |
 | `DJANGO_SECRET_KEY` | Required strong, random Django secret. |
 | `DJANGO_DEBUG` | `False`; enable only for local development. |
 | `DJANGO_ALLOWED_HOSTS` | Required comma-separated hosts, without schemes or ports. No `*`. |
@@ -208,3 +226,12 @@ HTTPS or secure-cookie settings; local HTTP overrides must be explicit.
 
 - The short code `admin` is reserved and cannot be used.
 - SQLite is used by default and stored at `data/db.sqlite3`.
+- Run one application container. The image applies migrations before Gunicorn
+  starts; simultaneous replicas and rolling upgrades are not supported.
+- The image runs as UID/GID `10001:10001`. Dependencies and compressed static
+  files are prepared at build time. Only `/app/data` and temporary files in
+  `/tmp` need write access.
+- `GET /health/ready/` returns 200 when the link table can be read, or 503 if the
+  database is unavailable. Only this exact path is exempt from HTTPS redirects
+  for the internal Docker probe. Host validation still applies. The response
+  contains no account or link data. The short code `health` remains available.

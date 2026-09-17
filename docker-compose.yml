@@ -1,6 +1,15 @@
 services:
   web:
-    build: .
+    image: ${LINK_SHORTENER_IMAGE:-ghcr.io/sjtrny/link-shortener:latest}
+    restart: unless-stopped
+    stop_grace_period: 35s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -20,4 +29,8 @@ services:
       DJANGO_SUPERUSER_EMAIL: ${DJANGO_SUPERUSER_EMAIL:-}
       DJANGO_SUPERUSER_PASSWORD: ${DJANGO_SUPERUSER_PASSWORD:-}
     volumes:
-      - ./data:/app/data
+      - data:/app/data
+
+volumes:
+  data:
+    name: ${LINK_SHORTENER_DATA_VOLUME:-link-shortener-data}

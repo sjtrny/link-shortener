@@ -60,6 +60,8 @@ if SHORTLINK_BASE_URL:
     SHORTLINK_BASE_URL = SHORTLINK_BASE_URL.rstrip('/')
 
 SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', True)
+# The in-container readiness probe uses HTTP. All other paths retain HTTPS redirects.
+SECURE_REDIRECT_EXEMPT = [r'^health/ready/$']
 SESSION_COOKIE_SECURE = env_bool('DJANGO_SESSION_COOKIE_SECURE', True)
 CSRF_COOKIE_SECURE = env_bool('DJANGO_CSRF_COOKIE_SECURE', True)
 try:
