@@ -2,16 +2,14 @@
 
 ## Run a published image
 
-A GHCR release is not published yet. Until one is available, use the local build
-in the [README](../README.md#local-quick-start-with-docker-compose).
+Copy `docker-compose.yml` and `.env.example` from the repository, or use them
+from a checkout. Copy `.env.example` to `.env`, restrict its permissions to
+`600`, and configure the secret, public hosts, HTTPS, and trusted proxy as
+described in the [configuration guide](configuration.md). Keep the secret and
+volume name stable.
 
-For a published release, download `docker-compose.yml` and `.env.example` from
-that release. No source checkout is needed. Copy `.env.example` to `.env`,
-restrict its permissions to `600`, and configure a strong secret, public hosts,
-HTTPS, and the trusted proxy as described in the README. Keep the secret and
-volume name stable. Set `LINK_SHORTENER_IMAGE` to the chosen published version
-or immutable digest, for example `ghcr.io/sjtrny/link-shortener:X.Y.Z` (replace
-`X.Y.Z` with an actual release). Then run:
+The example uses `ghcr.io/sjtrny/link-shortener:latest`. To pin one build, set
+`LINK_SHORTENER_IMAGE` to its `sha-<full-commit>` tag or digest. Then run:
 
 ```bash
 docker compose pull
@@ -19,7 +17,7 @@ docker compose up -d --wait
 docker compose exec web python manage.py createsuperuser
 ```
 
-Without Compose, replace `X.Y.Z` with the same published version:
+Without Compose, use the same environment file and image:
 
 ```bash
 docker run -d --name link-shortener -p 127.0.0.1:8000:8000 \
@@ -27,7 +25,7 @@ docker run -d --name link-shortener -p 127.0.0.1:8000:8000 \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   --cap-drop ALL --security-opt no-new-privileges:true \
   --env-file .env -v link-shortener-data:/app/data \
-  ghcr.io/sjtrny/link-shortener:X.Y.Z
+  ghcr.io/sjtrny/link-shortener:latest
 docker exec -it link-shortener python manage.py createsuperuser
 ```
 
@@ -62,7 +60,7 @@ owner once. For a named volume, replace the volume and image below with yours:
 ```bash
 docker run --rm --user 0:0 --entrypoint chown \
   -v link-shortener-data:/app/data \
-  link-shortener:local -R 10001:10001 /app/data
+  ghcr.io/sjtrny/link-shortener:latest -R 10001:10001 /app/data
 ```
 
 This helper runs as root only to repair ownership on the mounted data. Normal
@@ -92,7 +90,7 @@ the ownership from the installation directory, using your chosen image:
 ```bash
 docker run --rm --user 0:0 --entrypoint chown \
   --mount "type=bind,src=$(pwd)/data,dst=/app/data" \
-  link-shortener:local -R 10001:10001 /app/data
+  ghcr.io/sjtrny/link-shortener:latest -R 10001:10001 /app/data
 docker compose -f docker-compose.yml -f compose.data.yml up -d --wait
 ```
 
@@ -168,8 +166,8 @@ a partially restored directory.
 1. Record the current image reference and retain the current Compose files.
    Stop the app and make a backup as above, but omit `docker compose start web`.
    Leave the app stopped for the upgrade.
-2. Read the new release notes. Change only `LINK_SHORTENER_IMAGE` to the chosen
-   release, keeping the data-volume name, secret, and other settings.
+2. Change only `LINK_SHORTENER_IMAGE` to `latest`, a commit tag, or a digest.
+   Keep the data-volume name, secret, and other settings.
 3. Run `docker compose pull`, then `docker compose up -d --wait`. For a local
    source build, use the build command from the README instead of `pull`.
 4. Check container health, logs, admin login, and a known redirect. Migrations
@@ -185,11 +183,12 @@ Changing the image alone does not reverse database migrations.
 ## Build metadata
 
 Local builds use `unreleased` and `unknown` version/revision labels by default.
-Supply release metadata when building a distributable image:
+Supply commit metadata when building a distributable image:
 
 ```bash
-docker build --build-arg VERSION=X.Y.Z --build-arg REVISION="$(git rev-parse HEAD)" \
-  -t link-shortener:X.Y.Z .
+revision="$(git rev-parse HEAD)"
+docker build --build-arg VERSION="sha-$revision" --build-arg REVISION="$revision" \
+  -t link-shortener:local .
 ```
 
 The image includes OCI title, description, source, version, and revision labels.
