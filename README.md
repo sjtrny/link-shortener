@@ -235,3 +235,9 @@ HTTPS or secure-cookie settings; local HTTP overrides must be explicit.
   database is unavailable. Only this exact path is exempt from HTTPS redirects
   for the internal Docker probe. Host validation still applies. The response
   contains no account or link data. The short code `health` remains available.
+
+## Development checks
+
+Pull requests and changes to `main` run application checks, dependency audits,
+and container lifecycle checks. See [CI and local checks](docs/ci.md) for the
+commands, upgrade baseline, and image-audit policy. CI does not publish images.

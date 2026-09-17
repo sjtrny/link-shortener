@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application:
+    name: Application (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.13', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.12.1'
+          python-version: ${{ matrix.python }}
+          enable-cache: false
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Application, migration, and production configuration checks
+        run: uv run --locked python ci/check.py
+
+  dependencies:
+    name: Locked dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.12.1'
+          python-version: '3.13'
+          enable-cache: false
+      - name: Export the locked runtime requirements
+        run: uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file "$RUNNER_TEMP/requirements.txt"
+      - name: Audit locked dependencies
+        run: uvx pip-audit==2.10.1 --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+
+  container:
+    name: Container lifecycle and image audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build the candidate image
+        run: docker build --pull --build-arg VERSION=ci --build-arg REVISION="$GITHUB_SHA" --tag link-shortener:ci .
+      - name: Build the upgrade baseline
+        env:
+          BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
+        shell: bash
+        run: |
+          revision="${BASE_REVISION:-HEAD^1}"
+          if [[ "$revision" == 0000000000000000000000000000000000000000 ]]; then
+            revision=HEAD^1
+          fi
+          git archive "$revision" | docker build --pull --tag link-shortener:baseline -
+      - name: Fresh install, persistence, backup, restore, and upgrade
+        run: python3 ci/container_smoke.py --image link-shortener:ci --upgrade-from link-shortener:baseline
+      - name: Report image vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: link-shortener:ci
+          scanners: vuln
+          format: table
+          exit-code: '0'
+          cache: 'false'
+          timeout: 10m
+      - name: Reject fixable high and critical image vulnerabilities
+        run: >-
+          trivy image --cache-dir .cache/trivy --scanners vuln --timeout 10m
+          --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 link-shortener:ci
