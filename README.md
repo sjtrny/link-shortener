@@ -1,245 +1,72 @@
-# Django link shortener
+# link-shortener
 
-A minimal Django link shortener where links are created only in Django admin.
+Admin-managed Django link shortener with QR codes.
 
-## Features
+## Run
 
-- Create short links in Django admin only
-- Use a custom short code, or leave it blank to generate a random one
-- Redirect from `/<code>/` to the destination URL
-- Copy short URLs and preview or download QR codes in admin
-- Runs with gunicorn in Docker
-- Serves Django admin static files with WhiteNoise
+Create `compose.yaml`:
 
-## Local quick start with Docker Compose
+```yaml
+services:
+  app:
+    image: ghcr.io/sjtrny/link-shortener:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      DJANGO_SECRET_KEY:
+      DJANGO_ALLOWED_HOSTS: localhost
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+      DJANGO_SESSION_COOKIE_SECURE: "False"
+      DJANGO_CSRF_COOKIE_SECURE: "False"
+    volumes:
+      - data:/app/data
 
-Copy the local configuration:
-
-```bash
-cp .env.example .env
-chmod 600 .env
+volumes:
+  data:
+    name: link-shortener-data
 ```
 
-Generate a secret, then paste it into `DJANGO_SECRET_KEY` in `.env`:
+Django uses `DJANGO_SECRET_KEY` for cryptographic signing. Generate a random
+value once, keep it private, and put it after `DJANGO_SECRET_KEY:`:
 
-```bash
-python -c 'import secrets; print(secrets.token_urlsafe(64))'
+```sh
+python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
 ```
 
-Keep this secret stable across restarts. The app refuses to start without a
-secret of at least 50 characters and 5 distinct characters, or with a
-`django-insecure-` key. `DJANGO_ALLOWED_HOSTS` is also required; `*` is rejected.
-These requirements apply with debug enabled too.
+Start the app and create an admin account:
 
-The example enables HTTP **only for local use**. Compose binds port 8000 to
-`127.0.0.1`; it does not expose the app on every network interface. Do not use
-the HTTP overrides for an internet-facing installation.
-
-Start the app and create the first admin interactively:
-
-```bash
-docker compose -f docker-compose.yml -f compose.build.yml build
+```sh
 docker compose up -d --wait
-docker compose exec web python manage.py createsuperuser
+docker compose exec app python manage.py createsuperuser
 ```
 
-There is no default admin account or password. Open:
+Open <http://localhost:8000/admin/>.
 
-- App: http://localhost:8000/
-- Admin: http://localhost:8000/admin/
+The example listens on localhost and uses HTTP. Configure an HTTPS proxy before
+you expose the app to a network.
 
-Compose stores the database in the named volume `link-shortener-data`. Container
-replacement preserves this volume. Do not use `docker compose down --volumes`
-unless you intend to delete the database. `.env` and runtime data are ignored
-by Git and excluded from the image build. Do not commit or share real credentials.
+## Links
 
-**Upgrading an existing installation that uses `./data`?** Follow the
-[data migration instructions](docs/operations.md#existing-bind-mount-installations)
-before using the new Compose file. It does not copy your old database automatically.
+In Django admin, add a **Short link** with a destination URL. Enter a custom
+code or leave it empty to generate one.
 
-The main Compose file runs an image without a source checkout or build tools.
-The additional `compose.build.yml` file builds that image locally. See
-[container operations](docs/operations.md) for published-image configuration,
-backups, restores, upgrades, and data ownership. A GHCR release is not published
-yet; use the local build until one is available.
+The saved record shows the short URL and its QR code. You can copy the URL, open
+the QR image, or download it as a PNG. The QR code points to the short URL, so
+you can change the destination later.
 
-### Docker without Compose
+## Documentation
 
-Use the same configured `.env` file:
+- [Configuration](docs/configuration.md)
+- [Operations](docs/operations.md)
+- [CI and local checks](docs/ci.md)
+- [Container publishing](docs/releasing.md)
 
-```bash
-docker build -t link-shortener:local .
-docker run -d --name link-shortener -p 127.0.0.1:8000:8000 \
-  --restart unless-stopped --stop-timeout 35 \
-  --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-  --cap-drop ALL --security-opt no-new-privileges:true \
-  --env-file .env \
-  -v link-shortener-data:/app/data \
-  link-shortener:local
-docker exec -it link-shortener python manage.py createsuperuser
-```
+## State and restart
 
-### Optional automated admin bootstrap
+SQLite data is stored in the `link-shortener-data` Docker volume. Replacing the
+container keeps this data. Do not use `docker compose down --volumes` unless you
+want to delete it.
 
-For an unattended first start, set all three `DJANGO_SUPERUSER_*` variables to
-your chosen username, email, and a strong password. Leave all three empty to
-disable bootstrap. Partial configuration, invalid user fields, weak passwords,
-and the old example password cause startup to fail.
-
-Bootstrap creates an admin only if the username is absent. It never resets an
-existing admin's password or promotes an existing regular user. After the first
-successful start, clear the three variables and recreate the container with
-`docker compose up -d --force-recreate`. Keep the data directory. Clearing the
-variables does not remove the account. The entrypoint also removes them from
-the server process environment, but container configuration retains them until
-the container is recreated without them.
-
-## How to create a short link
-
-1. Go to **Admin** → **Short links** → **Add short link**
-2. Enter `target_url`
-3. Either:
-   - enter `short_code` yourself, or
-   - leave `short_code` blank to auto-generate one
-4. Save
-
-Your short link will be available at:
-
-```text
-http://localhost:8000/<short_code>/
-```
-
-### Public URLs and QR codes
-
-Set `SHORTLINK_BASE_URL` to the public origin, for example
-`https://go.example.com`. Copied URLs, short-path links, and QR codes all use
-this origin, even if you open admin on another hostname. Include the scheme
-and any non-default port. A trailing slash is accepted; credentials, paths,
-queries, and fragments are not. Invalid values stop startup.
-
-If the setting is empty, each page or QR request uses its own validated host
-and scheme. Use the public hostname in this mode, and configure the trusted
-proxy correctly for HTTPS. Set the public origin explicitly when admin and
-redirects have separate hostnames. Both hostnames must be allowed and routed
-to the app; this setting does not configure DNS or your reverse proxy.
-
-After saving a link, use **Copy**, **Open image**, or **Download PNG**. QR images
-encode the short URL, not the destination, so the destination can change without
-reprinting the QR code. Staff need view or change permission for short links to
-access QR images. Missing links return 404; anonymous users must log in.
-
-Copy reports success after the browser confirms it. If clipboard access is
-unavailable or denied, the URL is selected and a message explains how to copy
-it manually. Browser clipboard access normally requires HTTPS or localhost.
-
-## Optional local run without Docker
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and prepare
-`.env` as above. The project requires Python 3.13 or newer. Use the lockfile:
-
-```bash
-uv sync --locked --python 3.13
-uv run --locked --env-file .env python manage.py migrate
-uv run --locked --env-file .env python manage.py createsuperuser
-uv run --locked --env-file .env python manage.py runserver
-```
-
-The app itself does not load `.env`; Compose, `docker run --env-file`, or
-`uv run --env-file` supplies the environment.
-
-## HTTPS and reverse proxies
-
-For production, put Gunicorn behind an HTTPS reverse proxy and keep debug off.
-In `.env`, replace the local hosts and origins, and enable the secure defaults:
-
-```dotenv
-DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=short.example
-DJANGO_CSRF_TRUSTED_ORIGINS=https://short.example
-SHORTLINK_BASE_URL=https://short.example
-DJANGO_SECURE_SSL_REDIRECT=True
-DJANGO_SESSION_COOKIE_SECURE=True
-DJANGO_CSRF_COOKIE_SECURE=True
-```
-
-Keep the generated secret; do not use an example value. The proxy must preserve
-the public `Host` header, terminate TLS, redirect public HTTP traffic to HTTPS,
-and **overwrite** `X-Forwarded-Proto` with the original request scheme. It must
-not pass a client-supplied value through unchanged.
-
-Set `FORWARDED_ALLOW_IPS` to the comma-separated source IP addresses that
-Gunicorn actually sees for this proxy. No addresses are trusted by default,
-including loopback. Do not use `*` on an accessible backend. Keep port 8000
-reachable only by the controlled proxy, using loopback, a private container
-network, or firewall rules. Configure admin login rate limiting at the proxy.
-
-Gunicorn accepts `X-Forwarded-Proto: https` only from an allowed source and then
-sets the WSGI scheme. Django deliberately does not trust the raw forwarded
-header, which would bypass the source-IP check. `X-Forwarded-Host` and other
-forwarded scheme headers are not used. For a different WSGI/ASGI server, set up
-the equivalent trusted-proxy boundary in that server before deployment.
-
-HSTS is opt-in because browsers retain it. After HTTPS works, start with
-`DJANGO_SECURE_HSTS_SECONDS=3600` and increase it as appropriate. Only enable
-`DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS` if all subdomains support HTTPS, and
-`DJANGO_SECURE_HSTS_PRELOAD` if you intend to meet the preload requirements.
-
-Review deployment checks with the production environment:
-
-```bash
-docker compose exec web python manage.py check --deploy
-```
-
-With HSTS disabled, Django reports `security.W004`. If HSTS is enabled but its
-subdomain or preload options are off, it reports `security.W005` or
-`security.W021`. Review these choices for your domain; do not enable them just
-to suppress warnings. See [Django's deployment checklist](https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/)
-and [Gunicorn's proxy settings](https://gunicorn.org/reference/settings/).
-
-## Environment variables
-
-| Variable | Default / purpose |
-| --- | --- |
-| `LINK_SHORTENER_IMAGE` | Compose image reference; defaults to `ghcr.io/sjtrny/link-shortener:latest`. The local example uses `link-shortener:local`. Use a published version or digest for production. |
-| `LINK_SHORTENER_DATA_VOLUME` | Compose volume name; defaults to `link-shortener-data`. Keep it stable across upgrades. Use distinct names for separate installations. |
-| `DJANGO_SECRET_KEY` | Required strong, random Django secret. |
-| `DJANGO_DEBUG` | `False`; enable only for local development. |
-| `DJANGO_ALLOWED_HOSTS` | Required comma-separated hosts, without schemes or ports. No `*`. |
-| `DJANGO_CSRF_TRUSTED_ORIGINS` | Empty; optional comma-separated origins including schemes and any non-default ports. |
-| `SHORTLINK_BASE_URL` | Empty; optional public HTTP(S) origin for displayed/copied links and QR codes. Defaults to the current request origin when empty. |
-| `DJANGO_SECURE_SSL_REDIRECT` | `True`; redirect HTTP requests to HTTPS. |
-| `DJANGO_SESSION_COOKIE_SECURE` | `True`; send session cookies over HTTPS only. |
-| `DJANGO_CSRF_COOKIE_SECURE` | `True`; send CSRF cookies over HTTPS only. |
-| `DJANGO_SECURE_HSTS_SECONDS` | `0`; non-negative HSTS lifetime in seconds. |
-| `DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS` | `False`; extend HSTS to subdomains. |
-| `DJANGO_SECURE_HSTS_PRELOAD` | `False`; add the HSTS preload directive. |
-| `FORWARDED_ALLOW_IPS` | Empty; proxy source IPs trusted by Gunicorn. |
-| `DJANGO_SUPERUSER_USERNAME` | Empty; optional first-admin username. |
-| `DJANGO_SUPERUSER_EMAIL` | Empty; optional first-admin email. |
-| `DJANGO_SUPERUSER_PASSWORD` | Empty; optional first-admin password, checked by Django's password validators. |
-
-Boolean values accept `True`/`False`, `1`/`0`, `yes`/`no`, or `on`/`off`,
-case-insensitively. Other values fail startup. Debug mode does not disable the
-HTTPS or secure-cookie settings; local HTTP overrides must be explicit.
-
-## Notes
-
-- The short code `admin` is reserved and cannot be used.
-- SQLite is used by default and stored at `data/db.sqlite3`.
-- Run one application container. The image applies migrations before Gunicorn
-  starts; simultaneous replicas and rolling upgrades are not supported.
-- The image runs as UID/GID `10001:10001`. Dependencies and compressed static
-  files are prepared at build time. Only `/app/data` and temporary files in
-  `/tmp` need write access.
-- `GET /health/ready/` returns 200 when the link table can be read, or 503 if the
-  database is unavailable. Only this exact path is exempt from HTTPS redirects
-  for the internal Docker probe. Host validation still applies. The response
-  contains no account or link data. The short code `health` remains available.
-
-## Development checks
-
-Pull requests and changes to `main` run application checks, dependency audits,
-and container lifecycle checks. See [CI and local checks](docs/ci.md) for the
-commands, upgrade baseline, and image-audit policy. After all checks pass for a
-new `main` commit, CI publishes the Linux amd64 image as `latest` and with its
-full commit tag. See [container publishing](docs/releasing.md) for details.
+Run one application container. Startup applies database migrations before it
+starts Gunicorn.
