@@ -1,18 +1,21 @@
 # CI and local checks
 
 The `CI` workflow runs for pull requests, pushes to `main`, and manual runs.
-It uses GitHub-hosted Ubuntu runners, SHA-pinned actions, and a read-only
-repository token. Checkout credentials are not retained. No deployment secrets,
-registry login, image push, or package-write permission are used. Fork pull
-requests use `pull_request`, not `pull_request_target`.
+It uses GitHub-hosted Ubuntu runners and SHA-pinned actions. Check jobs have a
+read-only repository token, and checkout credentials are not retained. Only a
+successful push to `main` starts the final publish job and grants it
+`packages: write`. Pull requests and manual runs cannot log in to GHCR or push
+an image. Fork pull requests use `pull_request`, not `pull_request_target`.
 
 ## Jobs
 
 | Job | Coverage |
 | --- | --- |
+| Workflow syntax | Download actionlint from its pinned release, verify the archive checksum, and check every workflow. |
 | Application (Python 3.13 and 3.14) | Locked installation; application regression suite; migration drift; strict production deployment checks; both Compose configurations. |
 | Locked dependency audit | Export runtime requirements and hashes from `uv.lock`, then audit them with pip-audit. |
 | Container lifecycle and image audit | Build the candidate and baseline images; check fresh startup, HTTP behavior, data persistence, backup/restore, upgrade, and graceful shutdown; scan the candidate image with Trivy. |
+| Publish amd64 image | After every other job passes on a `main` push, publish `latest` and an immutable full-commit tag to GHCR with provenance and an SBOM. |
 
 Regression coverage includes generated and custom codes, case normalization,
 collisions and database uniqueness, reserved codes, redirects, admin access,
@@ -88,6 +91,9 @@ Both images must already exist in the Docker daemon. The suite works with a
 remote daemon because it streams probes and archives instead of mounting client
 paths. It removes only its randomly named containers and volumes; the two image
 tags remain available for inspection or removal.
+
+See [container publishing](releasing.md) for the automatic `main` publication
+flow, image tags, and first-package visibility step.
 
 To reproduce the dependency audit:
 

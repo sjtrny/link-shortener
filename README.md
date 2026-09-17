@@ -240,4 +240,6 @@ HTTPS or secure-cookie settings; local HTTP overrides must be explicit.
 
 Pull requests and changes to `main` run application checks, dependency audits,
 and container lifecycle checks. See [CI and local checks](docs/ci.md) for the
-commands, upgrade baseline, and image-audit policy. CI does not publish images.
+commands, upgrade baseline, and image-audit policy. After all checks pass for a
+new `main` commit, CI publishes the Linux amd64 image as `latest` and with its
+full commit tag. See [container publishing](docs/releasing.md) for details.
