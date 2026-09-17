@@ -7,6 +7,7 @@ A minimal Django link shortener where links are created only in Django admin.
 - Create short links in Django admin only
 - Use a custom short code, or leave it blank to generate a random one
 - Redirect from `/<code>/` to the destination URL
+- Copy short URLs and preview or download QR codes in admin
 - Runs with gunicorn in Docker
 - Serves Django admin static files with WhiteNoise
 
@@ -92,6 +93,29 @@ Your short link will be available at:
 http://localhost:8000/<short_code>/
 ```
 
+### Public URLs and QR codes
+
+Set `SHORTLINK_BASE_URL` to the public origin, for example
+`https://go.example.com`. Copied URLs, short-path links, and QR codes all use
+this origin, even if you open admin on another hostname. Include the scheme
+and any non-default port. A trailing slash is accepted; credentials, paths,
+queries, and fragments are not. Invalid values stop startup.
+
+If the setting is empty, each page or QR request uses its own validated host
+and scheme. Use the public hostname in this mode, and configure the trusted
+proxy correctly for HTTPS. Set the public origin explicitly when admin and
+redirects have separate hostnames. Both hostnames must be allowed and routed
+to the app; this setting does not configure DNS or your reverse proxy.
+
+After saving a link, use **Copy**, **Open image**, or **Download PNG**. QR images
+encode the short URL, not the destination, so the destination can change without
+reprinting the QR code. Staff need view or change permission for short links to
+access QR images. Missing links return 404; anonymous users must log in.
+
+Copy reports success after the browser confirms it. If clipboard access is
+unavailable or denied, the URL is selected and a message explains how to copy
+it manually. Browser clipboard access normally requires HTTPS or localhost.
+
 ## Optional local run without Docker
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and prepare
@@ -156,9 +180,6 @@ subdomain or preload options are off, it reports `security.W005` or
 to suppress warnings. See [Django's deployment checklist](https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/)
 and [Gunicorn's proxy settings](https://gunicorn.org/reference/settings/).
 
-The current admin derives link URLs from the request origin. Canonical base-URL
-and QR behavior are separate release follow-ups.
-
 ## Environment variables
 
 | Variable | Default / purpose |
@@ -167,7 +188,7 @@ and QR behavior are separate release follow-ups.
 | `DJANGO_DEBUG` | `False`; enable only for local development. |
 | `DJANGO_ALLOWED_HOSTS` | Required comma-separated hosts, without schemes or ports. No `*`. |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | Empty; optional comma-separated origins including schemes and any non-default ports. |
-| `SHORTLINK_BASE_URL` | Empty; retained configuration, not yet used by the admin URL builder. |
+| `SHORTLINK_BASE_URL` | Empty; optional public HTTP(S) origin for displayed/copied links and QR codes. Defaults to the current request origin when empty. |
 | `DJANGO_SECURE_SSL_REDIRECT` | `True`; redirect HTTP requests to HTTPS. |
 | `DJANGO_SESSION_COOKIE_SECURE` | `True`; send session cookies over HTTPS only. |
 | `DJANGO_CSRF_COOKIE_SECURE` | `True`; send CSRF cookies over HTTPS only. |

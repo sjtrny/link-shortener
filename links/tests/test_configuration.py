@@ -33,13 +33,17 @@ print(json.dumps({
     'hsts_preload': settings.SECURE_HSTS_PRELOAD,
     'proxy_header': settings.SECURE_PROXY_SSL_HEADER,
     'forwarded_host': settings.USE_X_FORWARDED_HOST,
+    'shortlink_base': settings.SHORTLINK_BASE_URL,
 }))
 '''
 
 
 class ConfigurationTests(SimpleTestCase):
     def probe(self, **overrides):
-        env = {name: value for name, value in os.environ.items() if not name.startswith('DJANGO_')}
+        env = {
+            name: value for name, value in os.environ.items()
+            if not name.startswith('DJANGO_') and name != 'SHORTLINK_BASE_URL'
+        }
         env.update(DJANGO_SECRET_KEY=secrets.token_urlsafe(64), DJANGO_ALLOWED_HOSTS='short.example')
         for name, value in overrides.items():
             if value is None:
@@ -130,6 +134,26 @@ class ConfigurationTests(SimpleTestCase):
         self.assertEqual(settings['hsts'], 3600)
         self.assertTrue(settings['hsts_subdomains'])
         self.assertTrue(settings['hsts_preload'])
+
+    def test_public_origin_accepts_https_localhost_ports_and_ipv6(self):
+        for value in ('https://go.example', 'http://localhost:8000', 'https://go.example:8443/',
+                      'http://127.0.0.1:8000/', 'http://[::1]:8000', ''):
+            with self.subTest(origin=value):
+                result = self.probe(SHORTLINK_BASE_URL=value)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)['shortlink_base'], value.rstrip('/'))
+
+    def test_public_origin_rejects_unsafe_or_ambiguous_values(self):
+        for value in ('go.example', '//go.example', 'javascript:alert(1)', 'ftp://go.example',
+                      'https://user:secret@go.example', 'https://go.example/path',
+                      'https://go.example//', 'https://go.example?x=1', 'https://go.example?',
+                      'https://go.example#fragment', 'https://go.example#', 'https://go.example:99999',
+                      'https://go.example:0', 'https://go.exa\nmple', 'https://[invalid]'):
+            with self.subTest(origin=value):
+                result = self.probe(SHORTLINK_BASE_URL=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('SHORTLINK_BASE_URL must be an absolute HTTP(S) origin', result.stderr)
+                self.assertNotIn(value, result.stdout + result.stderr)
 
 
 @override_settings(ALLOWED_HOSTS=['short.example'], SECURE_SSL_REDIRECT=True)
