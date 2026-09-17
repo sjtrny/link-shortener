@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.core.validators import URLValidator
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -36,7 +38,26 @@ if not ALLOWED_HOSTS or '*' in ALLOWED_HOSTS:
         'Set DJANGO_ALLOWED_HOSTS to a comma-separated list of trusted hosts; "*" is not allowed.'
     )
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
-SHORTLINK_BASE_URL = os.getenv('SHORTLINK_BASE_URL', '').rstrip('/')
+SHORTLINK_BASE_URL = os.getenv('SHORTLINK_BASE_URL', '').strip()
+if SHORTLINK_BASE_URL:
+    try:
+        URLValidator(schemes=['http', 'https'])(SHORTLINK_BASE_URL)
+        origin = urlsplit(SHORTLINK_BASE_URL)
+        if (
+            origin.username is not None
+            or origin.password is not None
+            or origin.path not in ('', '/')
+            or '?' in SHORTLINK_BASE_URL
+            or '#' in SHORTLINK_BASE_URL
+            or origin.port == 0
+        ):
+            raise ValueError
+    except (ValidationError, ValueError):
+        raise ImproperlyConfigured(
+            'SHORTLINK_BASE_URL must be an absolute HTTP(S) origin with an optional port, '
+            'but no credentials, path, query, or fragment.'
+        ) from None
+    SHORTLINK_BASE_URL = SHORTLINK_BASE_URL.rstrip('/')
 
 SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', True)
 SESSION_COOKIE_SECURE = env_bool('DJANGO_SESSION_COOKIE_SECURE', True)
